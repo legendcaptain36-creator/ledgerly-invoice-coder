@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ledgerly: invoice coding in seconds</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f3f5f8;--card:#fff;--ink:#14213d;--mute:#5d6b82;--line:#dfe4ec;--accent:#1f6f5c;--accent-bg:#e4f2ee;--warn:#9a5b00;--warn-bg:#fdf1dc}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1420;--card:#161e2d;--ink:#eaf0fa;--mute:#93a1b8;--line:#26324a;--accent:#5fd0b0;--accent-bg:#14312b;--warn:#f0b955;--warn-bg:#33270f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Inter,system-ui,sans-serif;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+main{max-width:620px;margin:0 auto;padding:28px 16px 48px}
+h1{font:600 clamp(30px,8vw,42px)/1.08 Fraunces,Georgia,serif;letter-spacing:-.02em;margin:0 0 8px}
+.lead{color:var(--mute);margin:0 0 22px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+label{font-size:14px;font-weight:600;display:block;margin-bottom:6px}
+textarea{width:100%;font:inherit;font-size:15px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--bg);color:var(--ink);resize:vertical;min-height:150px}
+textarea:focus,button:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+details{margin:12px 0}summary{cursor:pointer;color:var(--mute);font-size:14px}
+details textarea{min-height:90px;margin-top:8px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+button{font:inherit;font-weight:600;border-radius:12px;border:0;padding:12px 20px;cursor:pointer;background:var(--ink);color:var(--bg);min-height:44px}
+button.ghost{background:none;color:var(--mute);font-weight:500;text-decoration:underline;padding:12px 4px}
+button:disabled{opacity:.5;cursor:wait}
+#out{margin-top:20px}
+.gl{font:600 22px/1.25 Fraunces,Georgia,serif;margin:2px 0 4px}
+.k{font-size:13px;color:var(--mute)}
+.meter{height:6px;background:var(--line);border-radius:9px;margin:8px 0 14px;overflow:hidden}.meter i{display:block;height:100%;background:var(--accent)}
+dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:0}dt{color:var(--mute);font-size:14px}dd{margin:0;text-align:right;font-weight:500;overflow-wrap:anywhere}
+.flag{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:8px 12px;font-size:14px;margin-top:8px}
+.ok{background:var(--accent-bg);color:var(--accent)}
+.err{color:#c0392b;margin-top:12px;font-size:14px}
+hr{border:0;border-top:1px solid var(--line);margin:14px 0}
+</style>
+</head>
+<body>
+<main>
+  <h1>Code an invoice in seconds</h1>
+  <p class="lead">Paste the invoice text. Get the GL account, tax, and anything worth a second look before you post.</p>
+  <div class="card">
+    <label for="inv">Invoice text</label>
+    <textarea id="inv" placeholder="Vendor, invoice number, date, line items, tax, total"></textarea>
+    <details><summary>Use your own chart of accounts</summary>
+      <textarea id="chart" placeholder="One per line, e.g.&#10;6300 Software and subscriptions"></textarea></details>
+    <div class="row"><button id="go">Suggest coding</button><button class="ghost" id="ex" type="button">Try an example</button></div>
+    <div class="err" id="err" role="alert"></div>
+  </div>
+  <div id="out" aria-live="polite"></div>
+</main>
+<script>
+var $=function(i){return document.getElementById(i)},KEY="ledgerly-seen";
+function seen(){try{return JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){return[]}}
+function remember(s){try{var a=seen();a.push(s);localStorage.setItem(KEY,JSON.stringify(a.slice(-200)))}catch(e){}}
+function esc(t){var d=document.createElement("div");d.textContent=t==null?"":t;return d.innerHTML}
+$("ex").onclick=function(){$("inv").value="Invoice #INV-20418\nDate: 2026-09-28\nFrom: Notion Labs Inc.\nTeam plan, 12 seats x $10.00 (Oct 2026)  $120.00\nTax (0%) $0.00\nTotal due: $120.00 USD"};
+$("go").onclick=async function(){
+  $("err").textContent="";$("out").innerHTML="";
+  var inv=$("inv").value.trim();if(!inv){$("err").textContent="Paste invoice text first.";return}
+  $("go").disabled=true;$("go").textContent="Reading invoice...";
+  try{
+    var r=await fetch("/api/code",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({invoice:inv,chart:$("chart").value})});
+    var d=await r.json();if(!r.ok)throw new Error(d.error||"Something went wrong.");
+    var sig=(d.vendor||"")+"|"+(d.invoice_number||"")+"|"+(d.total||""),dup=seen().indexOf(sig)>-1;
+    if(!dup)remember(sig);
+    var flags=(d.flags||[]).slice();if(dup)flags.unshift("Possible duplicate: same vendor, number and amount already checked here.");
+    var c=Math.round((d.confidence||0)*100);
+    $("out").innerHTML='<div class="card"><div class="k">Suggested account</div><div class="gl">'+esc(d.gl_account)+'</div><div class="k">'+c+'% confident. '+esc(d.reason)+'</div><div class="meter"><i style="width:'+c+'%"></i></div><dl>'
+     +'<dt>Vendor</dt><dd>'+esc(d.vendor)+'</dd><dt>Invoice no.</dt><dd>'+esc(d.invoice_number)+'</dd><dt>Date</dt><dd>'+esc(d.invoice_date)+'</dd><dt>Tax</dt><dd>'+esc(d.tax)+'</dd><dt>Total</dt><dd>'+esc(d.total)+' '+esc(d.currency)+'</dd></dl>'
+     +(flags.length?'<hr>'+flags.map(function(f){return'<div class="flag">'+esc(f)+'</div>'}).join(""):'<hr><div class="flag ok">No flags. Looks ready to post.</div>')+'</div>';
+  }catch(e){$("err").textContent=e.message}
+  $("go").disabled=false;$("go").textContent="Suggest coding";
+};
+</script>
+</body>
+</html>
