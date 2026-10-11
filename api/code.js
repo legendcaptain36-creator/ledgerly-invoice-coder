@@ -1,4 +1,3 @@
-// Vercel serverless function. The Groq key lives in the GROQ_API_KEY environment variable, never in the browser.
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
   const { invoice, chart } = req.body || {};
@@ -21,7 +20,7 @@ Never invent values missing from the invoice; use null.`;
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: "Bearer " + process.env.GROQ_API_KEY },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        model: "openai/gpt-oss-120b",
         temperature: 0.1,
         response_format: { type: "json_object" },
         messages: [
@@ -30,7 +29,10 @@ Never invent values missing from the invoice; use null.`;
         ]
       })
     });
-    if (!r.ok) return res.status(502).json({ error: "Groq request failed (" + r.status + ")." });
+    if (!r.ok) {
+      const detail = await r.text();
+      return res.status(502).json({ error: "Groq error " + r.status + ": " + detail.slice(0, 200) });
+    }
     const data = await r.json();
     return res.status(200).json(JSON.parse(data.choices[0].message.content));
   } catch (e) {
